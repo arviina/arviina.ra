@@ -1,0 +1,180 @@
+<!--
+Fichier: index.html
+But: copiez/collez ce fichier à la racine de votre dépôt GitHub.
+Pour publier: créez un repo, poussez ce fichier sur la branche main, puis dans Settings -> Pages -> Source sélectionnez main / root. Le site sera disponible à https://<votre-utilisateur>.github.io/<votre-repo>/
+
+Fonctionnalités:
+- Affiche le nom du pays (Arviina) et un drapeau simple.
+- Affiche la "Phrase du jour" (selon la date locale) si elle existe.
+- Permet d'ajouter/éditer une phrase pour une date précise (sauvegarde en localStorage du navigateur).
+- Permet d'importer/exporter les phrases (JSON) pour sauvegarde ou partage.
+
+Note: les phrases sont stockées dans le navigateur (localStorage). Si vous voulez que plusieurs personnes partagent la même liste, je peux ajouter une option avec GitHub Gist / Firebase / backend.
+-->
+
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Arviina — Phrase du jour</title>
+  <style>
+    :root{--bg:#071023;--card:#0b2540;--accent:#e6b800;--muted:#9fb0c8}
+    *{box-sizing:border-box}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial;background:linear-gradient(180deg,var(--bg),#041226);color:#eaf6ff;margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+    .wrap{width:100%;max-width:900px}
+    header{display:flex;gap:16px;align-items:center;margin-bottom:18px}
+    .flag{width:84px;height:56px;border-radius:6px;border:3px solid rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:center;background:linear-gradient(90deg,#0c3b2e,#0b2756)}
+    .flag .symbol{font-weight:900;color:var(--accent);font-size:22px}
+    h1{margin:0;font-size:28px}
+    p.lead{margin:4px 0 0;color:var(--muted)}
+
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:12px;padding:18px;box-shadow:0 10px 30px rgba(2,6,23,0.6)}
+    .grid{display:grid;grid-template-columns:1fr 360px;gap:16px}
+    @media (max-width:880px){.grid{grid-template-columns:1fr}.flag{width:64px;height:44px}.grid{gap:12px}}
+
+    .phrase{
+      padding:18px;border-radius:10px;background:rgba(255,255,255,0.02);min-height:120px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:20px}
+    .meta{margin-top:8px;color:var(--muted);font-size:13px}
+
+    label{display:block;font-size:13px;margin-bottom:6px;color:var(--muted)}
+    input[type=text],textarea,select{width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
+    textarea{min-height:84px}
+    .row{display:flex;gap:8px}
+    button{background:var(--accent);border:0;padding:10px 12px;border-radius:8px;cursor:pointer;font-weight:700}
+    .btn-ghost{background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--muted)}
+    small{color:var(--muted)}
+
+    .list{margin-top:12px;max-height:220px;overflow:auto}
+    .item{padding:10px;border-radius:8px;margin-bottom:8px;background:rgba(0,0,0,0.12);display:flex;justify-content:space-between;gap:8px;align-items:center}
+    .item .date{font-weight:700}
+    .controls{display:flex;gap:6px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="flag"><span class="symbol">AR</span></div>
+      <div>
+        <h1>Arviina</h1>
+        <p class="lead">Site simple — phrase quotidienne pour ton pays fictif.</p>
+      </div>
+    </header>
+
+    <div class="card grid">
+      <main>
+        <section>
+          <h2 style="margin-top:0">Phrase du jour</h2>
+          <div id="todayPhrase" class="phrase">Chargement…</div>
+          <div id="todayMeta" class="meta"></div>
+        </section>
+
+        <section style="margin-top:16px">
+          <h3>Importer / Exporter les phrases</h3>
+          <p><small>Tu peux sauvegarder toutes les phrases et les réimporter plus tard.</small></p>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button id="exportBtn">Exporter (JSON)</button>
+            <label class="btn-ghost" style="padding:8px;border-radius:8px;cursor:pointer">
+              Importer <input id="importFile" type="file" accept="application/json" style="display:none">
+            </label>
+          </div>
+        </section>
+      </main>
+
+      <aside>
+        <div>
+          <h3>Ajouter / Modifier une phrase</h3>
+          <label>Date</label>
+          <input type="text" id="dateInput" placeholder="YYYY-MM-DD" />
+          <label style="margin-top:8px">Phrase</label>
+          <textarea id="phraseInput" placeholder="Écris la phrase ici..."></textarea>
+          <div style="margin-top:8px" class="row">
+            <button id="saveBtn">Enregistrer</button>
+            <button id="clearBtn" class="btn-ghost">Supprimer la date</button>
+          </div>
+
+          <div style="margin-top:12px">
+            <h4>Liste des phrases</h4>
+            <div id="list" class="list"></div>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <footer style="margin-top:12px;color:var(--muted);font-size:13px">Astuce: les phrases sont stockées localement dans ton navigateur. Pour partager avec d'autres, je peux ajouter un stockage en ligne.</footer>
+  </div>
+
+  <script>
+    // utilitaires
+    const uid = 'arviina_phrases_v1';
+    const todayStr = new Date().toISOString().slice(0,10);
+
+    function load() {
+      const raw = localStorage.getItem(uid) || '{}';
+      try { return JSON.parse(raw); } catch(e){ return {}; }
+    }
+    function save(obj){ localStorage.setItem(uid, JSON.stringify(obj)); }
+
+    function renderToday(){
+      const phrases = load();
+      const p = phrases[todayStr];
+      const el = document.getElementById('todayPhrase');
+      const meta = document.getElementById('todayMeta');
+      if(p){ el.textContent = '"' + p + '"'; meta.textContent = 'Pour ' + todayStr; }
+      else { el.textContent = 'Aucune phrase définie pour aujourd\'hui — ajoute-en une à droite.'; meta.textContent = ''; }
+    }
+
+    function renderList(){
+      const list = document.getElementById('list'); list.innerHTML = '';
+      const phrases = load();
+      const entries = Object.entries(phrases).sort((a,b)=> b[0].localeCompare(a[0]));
+      if(entries.length===0){ list.innerHTML = '<small>Aucune phrase enregistrée.</small>'; return; }
+      for(const [date,txt] of entries){
+        const it = document.createElement('div'); it.className='item';
+        const span = document.createElement('div'); span.innerHTML = '<div class="date">'+date+'</div><div style="color:var(--muted);font-size:13px">'+(txt.length>60?txt.slice(0,60)+'…':txt)+'</div>';
+        const ctrl = document.createElement('div'); ctrl.className='controls';
+        const edit = document.createElement('button'); edit.className='btn-ghost'; edit.textContent='Éditer';
+        edit.onclick = ()=>{ document.getElementById('dateInput').value = date; document.getElementById('phraseInput').value = txt; window.scrollTo({top:0,behavior:'smooth'}); };
+        const del = document.createElement('button'); del.textContent='Supprimer'; del.onclick = ()=>{ if(confirm('Supprimer la phrase du '+date+' ?')){ const ph = load(); delete ph[date]; save(ph); renderList(); renderToday(); } };
+        ctrl.appendChild(edit); ctrl.appendChild(del);
+        it.appendChild(span); it.appendChild(ctrl); list.appendChild(it);
+      }
+    }
+
+    document.getElementById('saveBtn').addEventListener('click', ()=>{
+      const date = document.getElementById('dateInput').value.trim();
+      const txt = document.getElementById('phraseInput').value.trim();
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){ alert('Utilise le format YYYY-MM-DD'); return; }
+      const ph = load();
+      if(txt===''){ if(confirm('La phrase est vide : veux-tu supprimer la date '+date+' ?')){ delete ph[date]; save(ph); renderList(); renderToday(); } return; }
+      ph[date] = txt; save(ph); renderList(); renderToday(); alert('Phrase enregistrée pour '+date);
+    });
+
+    document.getElementById('clearBtn').addEventListener('click', ()=>{
+      const date = document.getElementById('dateInput').value.trim();
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){ alert('Utilise le format YYYY-MM-DD'); return; }
+      const ph = load(); if(ph[date]){ if(confirm('Supprimer la phrase du '+date+' ?')){ delete ph[date]; save(ph); renderList(); renderToday(); } } else alert('Aucune phrase pour cette date.');
+    });
+
+    // Export
+    document.getElementById('exportBtn').addEventListener('click', ()=>{
+      const data = localStorage.getItem(uid) || '{}';
+      const blob = new Blob([data],{type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'arviina_phrases.json'; a.click(); URL.revokeObjectURL(url);
+    });
+
+    // Import
+    document.getElementById('importFile').addEventListener('change',(e)=>{
+      const f = e.target.files[0]; if(!f) return; const r = new FileReader(); r.onload = ()=>{
+        try{ const parsed = JSON.parse(r.result); if(typeof parsed !== 'object'){ alert('Fichier invalide'); return; } save(parsed); renderList(); renderToday(); alert('Import réussi'); }catch(err){ alert('Erreur pendant l\'import'); }
+      }; r.readAsText(f);
+    });
+
+    // Init
+    document.getElementById('dateInput').value = todayStr;
+    renderList(); renderToday();
+
+  </script>
+</body>
+</html>
